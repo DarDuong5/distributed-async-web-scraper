@@ -1,0 +1,66 @@
+volumes:
+  pgdata:
+
+services:
+  redis:
+    image: redis
+    healthcheck: 
+      test: ["CMD-SHELL", "redis-cli ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+  
+  postgres:
+    image: postgres:16
+    environment:
+      - POSTGRES_USER=scraper
+      - POSTGRES_PASSWORD=scraperpass
+      - POSTGRES_DB=scraperdb
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scraper -d scraperdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    environment:
+      - DATABASE_URL=postgresql+psycopg://scraper:scraperpass@postgres:5432/scraperdb
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    ports: 
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  fetch-worker:
+    build: .
+    command: celery -A celery_app worker -Q fetch --concurrency=2 --loglevel=INFO
+    environment:
+      - DATABASE_URL=postgresql+psycopg://scraper:scraperpass@postgres:5432/scraperdb
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  parse-worker:
+    build: .
+    command: celery -A celery_app worker -Q parse --concurrency=10 --loglevel=INFO
+    environment:
+      - DATABASE_URL=postgresql+psycopg://scraper:scraperpass@postgres:5432/scraperdb
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+    
