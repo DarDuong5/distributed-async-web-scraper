@@ -43,3 +43,4 @@ Dockerfile
 compose.yaml
 .env
 .benchmark
+.pics

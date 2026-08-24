@@ -1,80 +1,78 @@
-# Async Scraper
-
-Async Scraper is a distributed web scraper built on a task queue using Celery and Redis with HTTP requests and persistent memory. Jobs are submitted over HTTP requests and gets dispatched to a pool of Celery worker processes, which executes them and stores their result in a database. This enables a process to do the fetching and parsing in parallel across multiple processes, processing many jobs concurrently.
+# Distributed Async Web Scraper
 
 ## Overview
 
-Async Scraper separates *what work is done* and *how it's scheduled*. An end user submits a job over HTTP and the API stores it in a database. A task gets dispatched to Redis and a pool of Celery worker processes, which runs separately from the API, and pulls tasks from Redis and executes them. After fetching and parsing, the result gets written back to the database, where the end user can retrieve them. Because workers are independent processes, they scale independently of the API. 
+A distributed web scraper that fetches URLs and parses the HTML to extract data. It runs on two distributed task queues where one handles the fetch tasks and one handles the parse tasks. The fetching is done asynchronously through the event loop across a couple of independent processes in its own worker pool, enabling concurrency. The parsing is done concurrently across multiple independent processes in its own worker pool, enabling true parallelism. It is done this way because fetching is just waiting for the webpage to load which is I/O-bound while parsing requires some computation to extract the necessary information which is CPU-bound. This is what separates the different kinds of tasks that runs on their own concurrency model that is most suited for them. 
 
-## Features
-- **Distributed Task Processing** - Celery workers run independently and are separate from the API.
-- **Redis** - Is used as a message broker to send tasks to workers. 
-- **Error Isolation** - When a job fails, it gets recorded without crashing the program, allowing the worker to still run as well as the others.
-- **HTTP Requests** - Can create and upload jobs with `POST` requests and can retrieve specific job with `GET` requests using `FastAPI`.
-- **Persistence** - Stores and updates all of the jobs with each request within the database with ORM models using `SQLAlchemy`.
-- **Dependency Injection** - Routes receive a database session through FastAPI's dependency injection.
-- **Independent Sessions** - Every individual worker can create a session to access the database when needed to update the table. 
+Rate limiting is also handled by integrating a semaphore, controlling the amount of concurrent web requests that happens at once. This is to prevent flooding a web server with many requests that can be interpreted as a DDOS. Whenever a task fails, it will not crash the worker or any of the other running workers but instead will be recorded to a database for the end user to get later. This is to prevent the program from crashing unexpectedly, which not only stops other working tasks from running but ruins the end user's entire experience. This project is built as a fully containerized distributed system with `FastAPI`, `Redis`, `Celery`, and `Postgres` that runs on a single command using `Docker`.
+
+**Important Note**: This project is only designed to test web scraping off of `https://books.toscrape.com/` for didactic reasons. It is NOT recommended to test this or to change any of this to test on different web servers. I'll include url samples in the `Usage` section.
+
+## Running It
+
+I was on `Python 3.14` for this project, so try to stick with that. Also, ensure you have `Docker` and `Docker Compose` installed. 
+
+Once you cloned the repo and cd into it, you'll have to build it for the first time, so run:
+```
+docker compose up --build
+```
+
+For future uses if you want to shutdown the containers, run:
+```
+docker compose down
+```
+
+And next time you run it, run:
+```
+docker compose up
+```
+
+**Note**: Please reference to Docker's documentation if you want to learn more but this is the basic usage of the commands. 
+
+**Important Note**: Ensure the workers are ready, the API finished starting up, and Redis and Postgres are ready to accept connections through the terminal. 
+
+## Usage
+
+I will walk you through using this sample:
+```
+[
+"http://books.toscrape.com/catalogue/page-1.html",
+"http://books.toscrape.com/catalogue/page-2.html",
+"http://books.toscrape.com/catalogue/page-3.html",
+"http://books.toscrape.com/catalogue/page-9999.html", # this is an invalid url, more on this later
+"http://books.toscrape.com/catalogue/page-4.html",
+"http://books.toscrape.com/catalogue/page-5.html"
+]
+```
+
+First, go to `http://0.0.0.0:8000/docs`. 
+
+Then make a post request using the sample, you should have something like this. Make sure all of the urls are correct. Note this specific url `http://books.toscrape.com/catalogue/page-9999.html` within our sample. It is invalid and we'll demonstrate how it is handled.
+![alt text](pics/usage-step1.png)
+
+Once you execute, you'll see a list of dictionaries, each dictionary consisting of the task ids, with the status, and url for each url in the batch of urls. I already had previous executions so my task ids may differ from yours.
+![alt text](pics/usage-step2.png)
+
+Then make a get request and choose an id you'd want to check. Here, I'll walk through the successful task and then a failed task. If you try to choose an id that doesn't exist, it will simply state that the id doesn't exist. I used 7 as my id input as that was the first valid url in the sample. 
+![alt text](pics/usage-step3.png)
+
+If the task is finished, it will update that to the database which is how the results are retrieved. Here, you can see that this task has finished and shows the actual information that we are looking for. Notice that there's no error, so it returns `null`.
+![alt text](pics/usage-step4.png)
+
+This is what a failing task looks like with this url `http://books.toscrape.com/catalogue/page-9999.html` we noted from earlier. Here the status shows that it failed with the specific error message. No value is returned here. 
+![alt text](pics/usage-step5.png)
 
 ## Architecture
-When the app runs, the end user can send requests to FastAPI. The request can be a `GET` or `POST` request, each with a different operation. 
-
-The `GET` request retrieves a specific job based on the given job `id` from `job_table` in the database and returns its `status`, `value`, and `error` if it exists. 
-
-As for the `POST` request, the given `JobBase` defined by the base model will be used to create a job row using `JobTable` as the ORM to be stored into the database with the job status as `pending`. An important note to make here is that we will be using the `id` generated by the table and we'll see why in a second. We will define our task to be sent to a queue which is dispatched by the Redis broker. Here, the task will generate another `id` different from the other one, but now this leaves us with two `id`s to work with. From the important note earlier, we will proceed with the `id` generated by the database and pass that into our task. The reason is twofold. First, we can use that `id` to later access to the job table and update the status and store the results. Second, sticking to one `id` prevents us from running into correlation problems. The Celery workers then pulls the tasks from Redis and executes them, updating the status to `running`. 
-
-The workers are separate processes running independently of the API. This means whatever task goes to Redis, one of the workers will pull it and executes it. When the worker is finished and produces a result, the database will get updated with the necessary information. This way, when users make `GET` requests to get the job, they will see that the job has finished running and will see its value and error. The update on the database with the results is handled for each worker. 
-
-``` mermaid
+```mermaid
 graph TD    
     A[User] -->|POST / GET| API[FastAPI]
     API --> |dispatches tasks| Redis[(Redis Broker)]
-    Redis --> |worker pulls tasks| Celery[Celery Workers]
-    API <--> |write pending / read status| DB[(SQLite)]
-    Celery --> |update status + result| DB
+    Redis --> |worker pulls fetch tasks| FetchCelery[Celery Fetch Pool\n Parallel]
+    Redis --> |worker pulls parse tasks| ParseCelery[Celery Parse Pool\n Async I/O]
+    API <--> |write pending / read status| DB[(PostgreSQL)]
+    FetchCelery --> |update status + result| DB
+    ParseCelery --> |update status + result| DB
 ```
-
-## Setup
-Requires Python 3.11+ and ensure you have Docker.
-```
-# Create and activate a virtual environment
-python -m venv .venv
-source .venv/bin/activate   # Linux/macOS
-# .venv\Scripts\activate    # Windows
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-## Usage
-First, run:
-```
-docker run -d -p 6379:6379 redis
-```
-This runs in the background using the port of Redis.
-
-Next, in a new terminal, run:
-```
-celery -A celery_app worker
-```
-This creates a pool of workers ready to execute any tasks with Redis.
-
-Finally, with the other terminal, run:
-```
-python3 main.py
-```
-Go to `http://localhost:8000/docs` to create and fetch jobs.
-
-Creating Job Sample Input:
-![alt text](pics/fastapi_create_job_sample_input.png)
-
-Creating Job Sample Output:
-![alt text](pics/fastapi_create_job_sample_output.png)
-
-Fetching Job Sample Input:
-![alt text](pics/fastapi_fetch_job_sample_input.png)
-
-Fetching Job Sample Output:
-![alt text](pics/fastapi_fetch_job_sample_output.png)
 
 ## Project structure
 Relevant files:
@@ -84,20 +82,13 @@ app.py # FastAPI: Create and fetch jobs through POST and GET requests while upda
 database.py # SQLAlchemy: JobTable inside of database and get_session for Depends().
 tasks.py # This is where the Celery worker executes tasks and updates the results to the database.
 handlers.py # Any new and existing job handlers goes here.
-context.py # (Not used for now) The Context bundling semaphore, process pool, and HTTP client to get passed to handlers 
 job.py # Job defined here.
 celery_app.py # Celery app is defined here and used across modules.
 ```
 
-## Roadmap
-- Stage 1: In-memory - DONE
-- Stage 2: FastAPI and SQLAlchemy - DONE
-- Stage 3: 
-    - Phase A: Celery + Redis
-        - Phase A-1: Simple Concurrency (one Celery pool) - DONE
-        - Phase A-2: Concurrency Optimization (two Celery pools) - DONE
-    - Phase B: Postgres + Docker and composing containers - IN PROGRESS
-    - Phase C: Host it (AWS) - NOT YET STARTED
+## What's left?
+- Cloud deployment via AWS
+- Unit tests
 
 ## License
 MIT.
