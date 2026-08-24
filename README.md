@@ -48,18 +48,23 @@ I will walk you through using this sample:
 First, go to `http://0.0.0.0:8000/docs`. 
 
 Then make a post request using the sample, you should have something like this. Make sure all of the urls are correct. Note this specific url `http://books.toscrape.com/catalogue/page-9999.html` within our sample. It is invalid and we'll demonstrate how it is handled.
+
 ![alt text](pics/usage-step1.png)
 
 Once you execute, you'll see a list of dictionaries, each dictionary consisting of the task ids, with the status, and url for each url in the batch of urls. I already had previous executions so my task ids may differ from yours.
+
 ![alt text](pics/usage-step2.png)
 
 Then make a get request and choose an id you'd want to check. Here, I'll walk through the successful task and then a failed task. If you try to choose an id that doesn't exist, it will simply state that the id doesn't exist. I used 7 as my id input as that was the first valid url in the sample. 
+
 ![alt text](pics/usage-step3.png)
 
 If the task is finished, it will update that to the database which is how the results are retrieved. Here, you can see that this task has finished and shows the actual information that we are looking for. Notice that there's no error, so it returns `null`.
+
 ![alt text](pics/usage-step4.png)
 
 This is what a failing task looks like with this url `http://books.toscrape.com/catalogue/page-9999.html` we noted from earlier. Here the status shows that it failed with the specific error message. No value is returned here. 
+
 ![alt text](pics/usage-step5.png)
 
 ## Architecture
