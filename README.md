@@ -69,14 +69,24 @@ This is what a failing task looks like with this url `http://books.toscrape.com/
 
 ## Architecture
 ```mermaid
-graph TD    
-    A[User] -->|POST / GET| API[FastAPI]
-    API --> |dispatches tasks| Redis[(Redis Broker)]
-    Redis --> |worker pulls fetch tasks| FetchCelery[Celery Fetch Pool\n Parallel]
-    Redis --> |worker pulls parse tasks| ParseCelery[Celery Parse Pool\n Async I/O]
-    API <--> |write pending / read status| DB[(PostgreSQL)]
-    FetchCelery --> |update status + result| DB
-    ParseCelery --> |update status + result| DB
+flowchart TB
+ subgraph sources["AWS EC2 INSTANCE - DOCKER COMPOSE"]
+        Redis[("Redis Broker")]
+        API["FastAPI"]
+        FetchCelery["Celery Fetch Pool\n Parallel"]
+        ParseCelery["Celery Parse Pool\n Async I/O"]
+        DB[("PostgreSQL")]
+  end
+    A["User"] -- POST / GET --> API
+    API -- dispatches tasks --> Redis
+    Redis <-- worker pulls fetch tasks --> FetchCelery
+    Redis -- worker pulls parse tasks --> ParseCelery
+    API <-- write pending / read status --> DB
+    FetchCelery -- update status + result --> DB
+    ParseCelery -- update status + result --> DB
+    FetchCelery -- fetch HTML --> Web["Target Website"]
+
+    style sources stroke:#FF6D00,fill:#FFE0B2
 ```
 
 ## Project structure
@@ -89,11 +99,8 @@ tasks.py # This is where the Celery worker executes tasks and updates the result
 handlers.py # Any new and existing job handlers goes here.
 job.py # Job defined here.
 celery_app.py # Celery app is defined here and used across modules.
+tests.py # Tests exists here.
 ```
-
-## What's left?
-- Cloud deployment via AWS
-- Unit tests
 
 ## License
 MIT License
