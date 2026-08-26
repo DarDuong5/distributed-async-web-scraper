@@ -41,7 +41,7 @@ services:
 
   fetch-worker:
     build: .
-    command: celery -A celery_app worker -Q fetch --concurrency=1 --loglevel=INFO
+    command: celery -A celery_app worker -Q fetch --concurrency=2 --loglevel=INFO
     environment:
       - DATABASE_URL=postgresql+psycopg://scraper:scraperpass@postgres:5432/scraperdb
       - CELERY_BROKER_URL=redis://redis:6379/0
@@ -53,7 +53,7 @@ services:
 
   parse-worker:
     build: .
-    command: celery -A celery_app worker -Q parse --concurrency=2 --loglevel=INFO
+    command: celery -A celery_app worker -Q parse --concurrency=10 --loglevel=INFO
     environment:
       - DATABASE_URL=postgresql+psycopg://scraper:scraperpass@postgres:5432/scraperdb
       - CELERY_BROKER_URL=redis://redis:6379/0

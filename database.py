@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session, DeclarativeBase, Mapped, mapped_column, sessionmaker
+from sqlalchemy.orm import Session, DeclarativeBase, Mapped, mapped_column
 from sqlalchemy import create_engine, String, JSON
 from sqlalchemy.pool import NullPool
 import os
@@ -9,7 +9,6 @@ DB_URL = os.environ.get(
 )
 
 engine = create_engine(DB_URL, poolclass=NullPool)
-session_local = sessionmaker(bind=engine, expire_on_commit=False)
 
 class Base(DeclarativeBase):
     pass
@@ -25,9 +24,5 @@ class JobTable(Base):
 def get_session():
     with Session(engine) as session:
         yield session
-
-# Base.metadata.create_all(engine)
-
-
 
 
