@@ -86,7 +86,7 @@ flowchart TB
     ParseCelery -- update status + result --> DB
     FetchCelery -- fetch HTML --> Web["Target Website"]
 
-    style sources stroke:#FF6D00,fill:#FFE0B2
+    style sources stroke:#000000,fill:#FF6D00
 ```
 
 ## Project structure
